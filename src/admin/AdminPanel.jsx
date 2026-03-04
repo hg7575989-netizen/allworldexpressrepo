@@ -20,137 +20,74 @@ function todayLocalDate() {
   return `${y}-${m}-${d}`;
 }
 
-function buildShipmentsCount(employees, companies) {
-  const seen = new Set();
-
-  for (const emp of employees) {
-    const docs = Array.isArray(emp?.docs) ? emp.docs : [];
-    for (const doc of docs) {
-      const id = doc?.id;
-      if (id !== undefined && id !== null) seen.add(`doc-${id}`);
-    }
-  }
-
-  for (const company of companies) {
-    const docs = Array.isArray(company?.docs) ? company.docs : [];
-    for (const doc of docs) {
-      const id = doc?.id;
-      if (id !== undefined && id !== null) seen.add(`doc-${id}`);
-    }
-  }
-
-  return seen.size;
-}
-
-function formatDateTime(value) {
-  if (!value) return "-";
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return "-";
-  }
-}
-
-function DetailsLine({ label, value }) {
-  return (
-    <div className="detail-line">
-      <span>{label}</span>
-      <strong>{value || "-"}</strong>
-    </div>
-  );
-}
-
-function DocLink({ href, label }) {
-  if (!href) return <span className="doc-missing">{label}: N/A</span>;
-  return (
-    <a href={href} target="_blank" rel="noreferrer" className="doc-link">
-      {label}
-    </a>
-  );
-}
-
-export default function AdminDashboard() {
+export default function AdminPanel() {
   const user = useMemo(() => readAuthUser(), []);
   const adminKey = (import.meta.env.VITE_ADMIN_PANEL_KEY || "").trim();
-  const adminHeaders = useMemo(() => (adminKey ? { "x-admin-key": adminKey } : {}), [adminKey]);
+  const adminHeaders = useMemo(
+    () => (adminKey ? { "x-admin-key": adminKey } : {}),
+    [adminKey]
+  );
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState("accounts");
   const [employees, setEmployees] = useState([]);
   const [companies, setCompanies] = useState([]);
-  const [todayShipments, setTodayShipments] = useState(0);
-  const [activeModal, setActiveModal] = useState(null);
-  const [searchText, setSearchText] = useState("");
-  const [actionState, setActionState] = useState({ key: "", loading: false });
+  const [loadingOverview, setLoadingOverview] = useState(true);
+  const [overviewError, setOverviewError] = useState("");
 
-  const loadDashboard = async () => {
+  const [selectedDate, setSelectedDate] = useState(todayLocalDate());
+  const [dailyDocs, setDailyDocs] = useState([]);
+  const [dailyTotal, setDailyTotal] = useState(0);
+  const [loadingDaily, setLoadingDaily] = useState(true);
+  const [dailyError, setDailyError] = useState("");
+
+  const loadOverview = async () => {
     try {
-      setLoading(true);
-      setError("");
-      const date = encodeURIComponent(todayLocalDate());
-
-      const [overviewRes, dailyRes] = await Promise.all([
-        fetch(apiUrl("/api/admin/overview"), { headers: adminHeaders }),
-        fetch(apiUrl(`/api/admin/docs/daily?date=${date}`), { headers: adminHeaders }),
-      ]);
-
-      const [overviewData, dailyData] = await Promise.all([overviewRes.json(), dailyRes.json()]);
-
-      if (!overviewRes.ok) {
-        setError(overviewData.message || "Failed to load admin dashboard");
+      setOverviewError("");
+      setLoadingOverview(true);
+      const res = await fetch(apiUrl("/api/admin/overview"), { headers: adminHeaders });
+      const data = await res.json();
+      if (!res.ok) {
+        setOverviewError(data.message || "Failed to load admin overview");
         return;
       }
-      if (!dailyRes.ok) {
-        setError(dailyData.message || "Failed to load daily shipment stats");
-        return;
-      }
-
-      setEmployees(Array.isArray(overviewData.employees) ? overviewData.employees : []);
-      setCompanies(Array.isArray(overviewData.companies) ? overviewData.companies : []);
-      setTodayShipments(Number(dailyData.total || 0));
+      setEmployees(Array.isArray(data.employees) ? data.employees : []);
+      setCompanies(Array.isArray(data.companies) ? data.companies : []);
     } catch {
-      setError("Server error while loading admin dashboard");
+      setOverviewError("Server error while loading admin overview");
     } finally {
-      setLoading(false);
+      setLoadingOverview(false);
+    }
+  };
+
+  const loadDailyDocs = async (date) => {
+    try {
+      setDailyError("");
+      setLoadingDaily(true);
+      const qDate = encodeURIComponent(date || todayLocalDate());
+      const res = await fetch(apiUrl(`/api/admin/docs/daily?date=${qDate}`), {
+        headers: adminHeaders,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setDailyError(data.message || "Failed to load daily documents");
+        return;
+      }
+      setDailyDocs(Array.isArray(data.docs) ? data.docs : []);
+      setDailyTotal(Number(data.total || 0));
+    } catch {
+      setDailyError("Server error while loading daily documents");
+    } finally {
+      setLoadingDaily(false);
     }
   };
 
   useEffect(() => {
-    loadDashboard();
+    loadOverview();
+    loadDailyDocs(selectedDate);
   }, []);
 
-  const totalShipments = useMemo(() => buildShipmentsCount(employees, companies), [employees, companies]);
-  const totalBlockedEmployees = useMemo(
-    () => employees.filter((item) => Number(item.is_blocked) === 1 || item.is_blocked === true).length,
-    [employees]
-  );
-  const totalBlockedCompanies = useMemo(
-    () => companies.filter((item) => Number(item.is_blocked) === 1 || item.is_blocked === true).length,
-    [companies]
-  );
-
-  const filteredEmployees = useMemo(() => {
-    const q = searchText.trim().toLowerCase();
-    if (!q) return employees;
-    return employees.filter((emp) => {
-      const haystack = `${emp.name || ""} ${emp.email || ""} ${emp.employee_id || ""} ${emp.number || ""}`.toLowerCase();
-      return haystack.includes(q);
-    });
-  }, [employees, searchText]);
-
-  const filteredCompanies = useMemo(() => {
-    const q = searchText.trim().toLowerCase();
-    if (!q) return companies;
-    return companies.filter((company) => {
-      const haystack = `${company.company_name || ""} ${company.company_unique_id || ""} ${company.email || ""} ${company.mobile_number || ""}`.toLowerCase();
-      return haystack.includes(q);
-    });
-  }, [companies, searchText]);
-
   const toggleStatus = async (entityType, id, currentBlocked) => {
-    const actionKey = `${entityType}-${id}`;
     try {
-      setActionState({ key: actionKey, loading: true });
       const res = await fetch(apiUrl(`/api/admin/${entityType}/${encodeURIComponent(id)}/block`), {
         method: "PATCH",
         headers: {
@@ -164,23 +101,21 @@ export default function AdminDashboard() {
         alert(data.message || "Failed to update status");
         return;
       }
-      await loadDashboard();
+      await loadOverview();
     } catch {
       alert("Server error while updating status");
-    } finally {
-      setActionState({ key: "", loading: false });
     }
   };
 
-  const closeModal = () => {
-    setActiveModal(null);
-    setSearchText("");
+  const onDateSearch = (e) => {
+    e.preventDefault();
+    loadDailyDocs(selectedDate);
   };
 
   if (user?.accountType !== "admin") {
     return (
       <div className="admin-page">
-        <div className="admin-shell">
+        <div className="admin-card">
           <p className="admin-state admin-state-error">Only admin can access this page.</p>
         </div>
       </div>
@@ -189,194 +124,264 @@ export default function AdminDashboard() {
 
   return (
     <div className="admin-page">
-      <div className="admin-shell">
+      <div className="admin-card">
         <div className="admin-header">
-          <div>
-            <h2>Operations Dashboard</h2>
-            <p>
-              {user?.name || "Admin"} ({user?.email || "-"})
-            </p>
-          </div>
-          <button type="button" className="btn-refresh" onClick={loadDashboard} disabled={loading}>
-            {loading ? "Refreshing..." : "Refresh"}
+          <h2>Admin Control Panel</h2>
+          <p>
+            Logged in as <b>{user?.name || "Admin"}</b> ({user?.email || "-"})
+          </p>
+        </div>
+
+        <div className="admin-tabs">
+          <button
+            type="button"
+            className={activeTab === "accounts" ? "is-active" : ""}
+            onClick={() => setActiveTab("accounts")}
+          >
+            Employees & Companies
+          </button>
+          <button
+            type="button"
+            className={activeTab === "daily" ? "is-active" : ""}
+            onClick={() => setActiveTab("daily")}
+          >
+            Daily Doct Tracker
           </button>
         </div>
 
-        {loading && <p className="admin-state">Loading dashboard...</p>}
-        {!loading && error && <p className="admin-state admin-state-error">{error}</p>}
+        {activeTab === "accounts" && (
+          <div className="admin-section">
+            {loadingOverview && <p className="admin-state">Loading overview...</p>}
+            {!loadingOverview && overviewError && (
+              <p className="admin-state admin-state-error">{overviewError}</p>
+            )}
 
-        {!loading && !error && (
-          <>
-            <div className="metric-grid">
-              <article className="metric-card card-a">
-                <span>Total Companies</span>
-                <strong>{companies.length}</strong>
-                <button type="button" onClick={() => setActiveModal("companies")}>View Details</button>
-              </article>
+            {!loadingOverview && !overviewError && (
+              <>
+                <h3>Employees ({employees.length})</h3>
+                <div className="admin-table-wrap">
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Employee</th>
+                        <th>Contact</th>
+                        <th>Profile Docs</th>
+                        <th>Generated Docs</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {employees.map((emp) => (
+                        <tr key={emp.id}>
+                          <td>
+                            <div>{emp.name || "-"}</div>
+                            <div className="subtxt">DB: {emp.id} | ID: {emp.employee_id || "-"}</div>
+                            <div className="subtxt">Role: {emp.role || "-"}</div>
+                            <div className="subtxt">Join: {emp.date_of_joining || "-"}</div>
+                            <div className="subtxt">Address: {emp.address || "-"}</div>
+                          </td>
+                          <td>
+                            <div>{emp.email || "-"}</div>
+                            <div className="subtxt">{emp.number || "-"}</div>
+                            <div className="subtxt">Last Login: {emp.login_time || "-"}</div>
+                          </td>
+                          <td>
+                            <DocLink href={emp.profile_pdf_link} label="Profile PDF" />
+                            <DocLink href={emp.pan_card_link} label="PAN" />
+                            <DocLink href={emp.bank_passbook_link} label="Passbook" />
+                            <DocLink href={emp.aadhaar_link} label="Aadhaar" />
+                            <DocLink href={emp.photo_link} label="Photo" />
+                          </td>
+                          <td>
+                            {Array.isArray(emp.docs) && emp.docs.length > 0 ? (
+                              <ul className="admin-mini-list">
+                                {emp.docs.map((doc) => (
+                                  <li key={doc.id}>
+                                    {doc.awb_no || "-"} |{" "}
+                                    <a href={doc.pdf_link || "#"} target="_blank" rel="noreferrer">
+                                      PDF
+                                    </a>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+                          <td>
+                            <span className={`status-pill ${emp.is_blocked ? "is-blocked" : "is-active"}`}>
+                              {emp.is_blocked ? "Blocked" : "Active"}
+                            </span>
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              className={`admin-action ${emp.is_blocked ? "is-unblock" : "is-block"}`}
+                              onClick={() => toggleStatus("employee", emp.id, Boolean(emp.is_blocked))}
+                            >
+                              {emp.is_blocked ? "Unblock" : "Block"}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
 
-              <article className="metric-card card-b">
-                <span>Total Employees</span>
-                <strong>{employees.length}</strong>
-                <button type="button" onClick={() => setActiveModal("employees")}>View Details</button>
-              </article>
+                <h3>Companies ({companies.length})</h3>
+                <div className="admin-table-wrap">
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Company</th>
+                        <th>Contact</th>
+                        <th>Documents</th>
+                        <th>Doct Records</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {companies.map((company) => (
+                        <tr key={company.id}>
+                          <td>
+                            <div>{company.company_name || "-"}</div>
+                            <div className="subtxt">DB: {company.id} | ID: {company.company_unique_id || "-"}</div>
+                            <div className="subtxt">Trade: {company.trade_name || "-"}</div>
+                            <div className="subtxt">Type: {company.business_type || "-"}</div>
+                            <div className="subtxt">GST: {company.gst_number || "-"}</div>
+                            <div className="subtxt">PAN: {company.pan_number || "-"}</div>
+                            <div className="subtxt">CIN: {company.cin_number || "-"}</div>
+                            <div className="subtxt">Reg Addr: {company.registered_address || "-"}</div>
+                            <div className="subtxt">Op Addr: {company.operational_address || "-"}</div>
+                          </td>
+                          <td>
+                            <div>{company.contact_full_name || "-"}</div>
+                            <div className="subtxt">{company.mobile_number || "-"}</div>
+                            <div className="subtxt">{company.email || "-"}</div>
+                          </td>
+                          <td>
+                            <DocLink href={company.profile_pdf_link} label="Profile PDF" />
+                            <DocLink href={company.pan_card_link} label="PAN Card" />
+                          </td>
+                          <td>
+                            {Array.isArray(company.docs) && company.docs.length > 0 ? (
+                              <ul className="admin-mini-list">
+                                {company.docs.map((doc) => (
+                                  <li key={`${company.id}-${doc.id}`}>
+                                    {doc.awb_no || "-"} |{" "}
+                                    <a href={doc.pdf_link || "#"} target="_blank" rel="noreferrer">
+                                      PDF
+                                    </a>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+                          <td>
+                            <span className={`status-pill ${company.is_blocked ? "is-blocked" : "is-active"}`}>
+                              {company.is_blocked ? "Blocked" : "Active"}
+                            </span>
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              className={`admin-action ${company.is_blocked ? "is-unblock" : "is-block"}`}
+                              onClick={() => toggleStatus("company", company.id, Boolean(company.is_blocked))}
+                            >
+                              {company.is_blocked ? "Unblock" : "Block"}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
-              <article className="metric-card card-c">
-                <span>Today Shipments</span>
-                <strong>{todayShipments}</strong>
-                <small>{todayLocalDate()}</small>
-              </article>
+        {activeTab === "daily" && (
+          <div className="admin-section">
+            <form className="daily-filter" onSubmit={onDateSearch}>
+              <label>
+                Date
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                />
+              </label>
+              <button type="submit">Load</button>
+              <div className="daily-total">Total Doct: {dailyTotal}</div>
+            </form>
 
-              <article className="metric-card card-d">
-                <span>Total Shipments</span>
-                <strong>{totalShipments}</strong>
-                <small>All-time generated docs</small>
-              </article>
-            </div>
+            {loadingDaily && <p className="admin-state">Loading daily docs...</p>}
+            {!loadingDaily && dailyError && <p className="admin-state admin-state-error">{dailyError}</p>}
 
-            <div className="insight-grid">
-              <section className="insight-card">
-                <h3>People Snapshot</h3>
-                <p>Employees: {employees.length}</p>
-                <p>Blocked Employees: {totalBlockedEmployees}</p>
-                <button type="button" onClick={() => setActiveModal("employees")}>Open Employee Center</button>
-              </section>
-
-              <section className="insight-card">
-                <h3>Company Snapshot</h3>
-                <p>Companies: {companies.length}</p>
-                <p>Blocked Companies: {totalBlockedCompanies}</p>
-                <button type="button" onClick={() => setActiveModal("companies")}>Open Company Center</button>
-              </section>
-            </div>
-          </>
+            {!loadingDaily && !dailyError && (
+              <div className="admin-table-wrap">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>AWB Number</th>
+                      <th>Generated By</th>
+                      <th>Created At</th>
+                      <th>PDF</th>
+                      <th>Edit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dailyDocs.length === 0 && (
+                      <tr>
+                        <td colSpan="5">No doct records found for selected date.</td>
+                      </tr>
+                    )}
+                    {dailyDocs.map((doc) => (
+                      <tr key={doc.id}>
+                        <td>{doc.awb_no || "-"}</td>
+                        <td>
+                          {doc.generated_by_name || "-"}
+                          <div className="subtxt">{doc.generated_by_employee_id || "-"}</div>
+                        </td>
+                        <td>{doc.created_at ? new Date(doc.created_at).toLocaleString() : "-"}</td>
+                        <td>
+                          {doc.pdf_link ? (
+                            <a href={doc.pdf_link} target="_blank" rel="noreferrer">
+                              Open PDF
+                            </a>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td>
+                          <a href={doc.edit_url || "#"}>Edit</a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         )}
       </div>
+    </div>
+  );
+}
 
-      {activeModal && (
-        <div className="modal-overlay" role="dialog" aria-modal="true">
-          <div className="modal-screen">
-            <div className="modal-head">
-              <h3>{activeModal === "employees" ? "Employee Details" : "Company Details"}</h3>
-              <div className="modal-actions">
-                <input
-                  type="text"
-                  value={searchText}
-                  onChange={(e) => setSearchText(e.target.value)}
-                  placeholder={`Search ${activeModal}...`}
-                />
-                <button type="button" className="btn-close" onClick={closeModal}>
-                  Close
-                </button>
-              </div>
-            </div>
-
-            <div className="modal-body">
-              {activeModal === "employees" && (
-                <div className="detail-grid">
-                  {filteredEmployees.map((emp) => {
-                    const isBlocked = Number(emp.is_blocked) === 1 || emp.is_blocked === true;
-                    const key = `employee-${emp.id}`;
-                    const isActionLoading = actionState.loading && actionState.key === key;
-
-                    return (
-                      <article key={emp.id} className="detail-card">
-                        <div className="detail-top">
-                          <div>
-                            <h4>{emp.name || "-"}</h4>
-                            <p>{emp.email || "-"}</p>
-                          </div>
-                          <span className={`status-pill ${isBlocked ? "is-blocked" : "is-active"}`}>
-                            {isBlocked ? "Blocked" : "Active"}
-                          </span>
-                        </div>
-
-                        <div className="detail-list">
-                          <DetailsLine label="Employee ID" value={emp.employee_id} />
-                          <DetailsLine label="Phone" value={emp.number} />
-                          <DetailsLine label="Role" value={emp.role} />
-                          <DetailsLine label="Date Of Joining" value={emp.date_of_joining} />
-                          <DetailsLine label="Address" value={emp.address} />
-                          <DetailsLine label="Last Login" value={formatDateTime(emp.login_time)} />
-                          <DetailsLine label="Generated Shipments" value={String(Array.isArray(emp.docs) ? emp.docs.length : 0)} />
-                        </div>
-
-                        <div className="doc-links-row">
-                          <DocLink href={emp.profile_pdf_link} label="Profile PDF" />
-                          <DocLink href={emp.pan_card_link} label="PAN" />
-                          <DocLink href={emp.bank_passbook_link} label="Passbook" />
-                          <DocLink href={emp.aadhaar_link} label="Aadhaar" />
-                          <DocLink href={emp.photo_link} label="Photo" />
-                        </div>
-
-                        <button
-                          type="button"
-                          className={`toggle-btn ${isBlocked ? "unblock" : "block"}`}
-                          disabled={isActionLoading}
-                          onClick={() => toggleStatus("employee", emp.id, isBlocked)}
-                        >
-                          {isActionLoading ? "Please wait..." : isBlocked ? "Unblock" : "Block"}
-                        </button>
-                      </article>
-                    );
-                  })}
-                </div>
-              )}
-
-              {activeModal === "companies" && (
-                <div className="detail-grid">
-                  {filteredCompanies.map((company) => {
-                    const isBlocked = Number(company.is_blocked) === 1 || company.is_blocked === true;
-                    const key = `company-${company.id}`;
-                    const isActionLoading = actionState.loading && actionState.key === key;
-
-                    return (
-                      <article key={company.id} className="detail-card">
-                        <div className="detail-top">
-                          <div>
-                            <h4>{company.company_name || "-"}</h4>
-                            <p>{company.email || "-"}</p>
-                          </div>
-                          <span className={`status-pill ${isBlocked ? "is-blocked" : "is-active"}`}>
-                            {isBlocked ? "Blocked" : "Active"}
-                          </span>
-                        </div>
-
-                        <div className="detail-list">
-                          <DetailsLine label="Company ID" value={company.company_unique_id} />
-                          <DetailsLine label="Contact Person" value={company.contact_full_name} />
-                          <DetailsLine label="Phone" value={company.mobile_number} />
-                          <DetailsLine label="Trade Name" value={company.trade_name} />
-                          <DetailsLine label="Business Type" value={company.business_type} />
-                          <DetailsLine label="GST" value={company.gst_number} />
-                          <DetailsLine label="PAN" value={company.pan_number} />
-                          <DetailsLine label="CIN" value={company.cin_number} />
-                          <DetailsLine label="Registered Address" value={company.registered_address} />
-                          <DetailsLine label="Operational Address" value={company.operational_address} />
-                          <DetailsLine label="Generated Shipments" value={String(Array.isArray(company.docs) ? company.docs.length : 0)} />
-                        </div>
-
-                        <div className="doc-links-row">
-                          <DocLink href={company.profile_pdf_link} label="Profile PDF" />
-                          <DocLink href={company.pan_card_link} label="PAN Card" />
-                        </div>
-
-                        <button
-                          type="button"
-                          className={`toggle-btn ${isBlocked ? "unblock" : "block"}`}
-                          disabled={isActionLoading}
-                          onClick={() => toggleStatus("company", company.id, isBlocked)}
-                        >
-                          {isActionLoading ? "Please wait..." : isBlocked ? "Unblock" : "Block"}
-                        </button>
-                      </article>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+function DocLink({ href, label }) {
+  if (!href) return <div className="subtxt">- {label}: N/A</div>;
+  return (
+    <div className="subtxt">
+      -{" "}
+      <a href={href} target="_blank" rel="noreferrer">
+        {label}
+      </a>
     </div>
   );
 }
