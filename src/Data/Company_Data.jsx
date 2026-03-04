@@ -1,0 +1,138 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import "./Data.css";
+import "./Company_Data.css";
+import { apiUrl } from "../config/api";
+
+function readAuthUser() {
+  try {
+    const raw = localStorage.getItem("auth_user");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function formatGeneratedThrough(doc) {
+  const mode = String(doc?.generated_by_type || "").toLowerCase();
+  if (mode === "self") return "Self";
+
+  const employeeName = String(doc?.generated_by_name || "").trim();
+  const employeeId = String(doc?.generated_by_employee_id || "").trim();
+  const fallbackEmpId = String(doc?.employee_id || "").trim();
+
+  if (employeeName && employeeId) return `Employee (${employeeName} - ${employeeId})`;
+  if (employeeName) return `Employee (${employeeName})`;
+  if (employeeId) return `Employee (${employeeId})`;
+  if (fallbackEmpId) return `Employee (${fallbackEmpId})`;
+
+  return "Self";
+}
+
+export default function CompanyData() {
+  const [docs, setDocs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const user = useMemo(() => readAuthUser(), []);
+
+  useEffect(() => {
+    const loadDocs = async () => {
+      if (!user?.id && !user?.dbId) {
+        setError("Please login first.");
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const companyId = encodeURIComponent(user.dbId || user.id);
+        const companyRes = await fetch(apiUrl(`/api/company/docs?companyId=${companyId}`));
+        if (!companyRes.ok) {
+          // If backend endpoint is not available yet, keep empty state instead of hard error.
+          setDocs([]);
+          return;
+        }
+        const companyData = await companyRes.json();
+        setDocs(Array.isArray(companyData.docs) ? companyData.docs : []);
+      } catch {
+        setError("Server error while loading company records");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadDocs();
+  }, [user]);
+
+  return (
+    <div className="data-page">
+      <div className="data-card">
+        <div className="data-head">
+          <h2>Company Documents</h2>
+          <p>
+            Logged in as: <b>{user?.name || "-"}</b> ({user?.email || "-"})
+          </p>
+        </div>
+
+        {loading && <p className="data-state">Loading...</p>}
+        {!loading && error && <p className="data-state data-state-error">{error}</p>}
+        {!loading && !error && docs.length === 0 && <p className="data-state">No records found.</p>}
+
+        {!loading && !error && docs.length > 0 && (
+          <div className="data-table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>AWB No</th>
+                  <th>Form Type</th>
+                  <th>Generated Through</th>
+                  <th>Created At</th>
+                  <th>PDF Link</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {docs.map((doc, idx) => (
+                  <tr key={doc.id || idx} style={{ animationDelay: `${idx * 60}ms` }}>
+                    <td>{doc.id || "-"}</td>
+                    <td className="data-awb">{doc.awb_no || "-"}</td>
+                    <td>
+                      <span className={`data-pill ${doc.form_type === "Doct" ? "is-doct" : "is-other"}`}>
+                        {doc.form_type || "-"}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="company-generated-through">{formatGeneratedThrough(doc)}</span>
+                    </td>
+                    <td>{doc.created_at ? new Date(doc.created_at).toLocaleString() : "-"}</td>
+                    <td>
+                      {doc.pdf_link ? (
+                        <a className="data-pdf-link" href={doc.pdf_link} target="_blank" rel="noreferrer">
+                          Open PDF
+                        </a>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+                    <td>
+                      {doc.form_type === "Doct" ? (
+                        <Link className="data-edit-link" to={`/doct?docId=${doc.id}`}>
+                          Edit
+                        </Link>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

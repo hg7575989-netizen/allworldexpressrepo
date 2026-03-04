@@ -1,0 +1,11 @@
+.company-generated-through {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #e8f5ff;
+  color: #0b5c9c;
+  border: 1px solid #b9ddff;
+  white-space: nowrap;
+}

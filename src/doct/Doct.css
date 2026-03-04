@@ -1,0 +1,202 @@
+.doctWrap{
+  min-height: 100vh;
+  background: #f6f7fb;
+  padding: 24px;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+.doctCard{
+  max-width: 1100px;
+  margin: 0 auto;
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 18px;
+  padding: 18px;
+  box-shadow: 0 18px 60px rgba(0,0,0,0.06);
+}
+
+.doctHead{
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.doctHeadInfo{
+  flex: 1;
+  min-width: 220px;
+}
+
+.doctHead h2{
+  margin: 0;
+  font-size: 20px;
+}
+.doctHead p{
+  margin: 4px 0 0;
+  color: #666;
+  font-size: 13px;
+}
+
+.airwayHeadField{
+  flex: 1;
+  max-width: 320px;
+}
+
+.btnPrimary{
+  background: #111;
+  color: #fff;
+  border: none;
+  padding: 12px 14px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 700;
+  transition: transform .15s ease, box-shadow .15s ease;
+  box-shadow: 0 12px 24px rgba(0,0,0,0.12);
+}
+.btnPrimary:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 16px 30px rgba(0,0,0,0.16);
+}
+
+.grid{
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.field{
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field span{
+  font-size: 12px;
+  color: #444;
+  font-weight: 700;
+}
+
+.useCurrentDate{
+  margin-top: 0.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 13px;
+}
+
+.input{
+  border: 1px solid #e6e6e6;
+  border-radius: 12px;
+  padding: 12px 12px;
+  outline: none;
+  transition: border .15s ease, box-shadow .15s ease;
+  font-size: 14px;
+}
+.input:focus{
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 4px rgba(79,70,229,0.12);
+}
+
+.fieldHighlight span{
+  color: #7a4100;
+}
+
+.fieldHighlight .input{
+  border-color: #f8b46a;
+  background: #fff8ee;
+}
+
+.fieldHighlight .input:focus{
+  border-color: #ef8f27;
+  box-shadow: 0 0 0 4px rgba(239,143,39,0.2);
+}
+
+.textareaInput{
+  min-height: 96px;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+.twoCols{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.box{
+  border: 1px solid #eee;
+  border-radius: 16px;
+  padding: 12px;
+  background: #fafafa;
+}
+
+.boxHead{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.boxHead h3{
+  margin: 0;
+  font-size: 14px;
+}
+
+.iconBtn{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #e6e6e6;
+  background: #fff;
+  padding: 8px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 700;
+}
+.iconBtn:hover{
+  border-color: #cfcfff;
+}
+
+.row{
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.miniBtn{
+  width: 42px;
+  border: 1px solid #e6e6e6;
+  background: #fff;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.hint{
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px dashed #ddd;
+  border-radius: 14px;
+  color: #555;
+  font-size: 13px;
+}
+
+@media (max-width: 900px){
+  .doctHead{
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .airwayHeadField{
+    max-width: none;
+    width: 100%;
+  }
+  .btnPrimary{
+    width: 100%;
+  }
+  .grid{ grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 650px){
+  .grid{ grid-template-columns: 1fr; }
+  .twoCols{ grid-template-columns: 1fr; }
+}
