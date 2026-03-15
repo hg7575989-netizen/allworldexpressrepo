@@ -164,7 +164,8 @@ export default function ScannerPage() {
             });
             const data = await res.json();
             if (!res.ok) {
-              setError(data?.message || "Scan update nahi ho paya.");
+              const endpoint = apiUrl("/api/orders/scan");
+              setError(`${data?.message || "Scan update nahi ho paya."} | API: ${endpoint}`);
               setStatus("QR code scan ho gaya, par backend update fail hua.");
               return;
             }
