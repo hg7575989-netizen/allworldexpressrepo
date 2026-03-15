@@ -84,6 +84,8 @@ export default function Signup() {
 
   const onChange = (e) => {
     const { name, value, type, files } = e.target;
+    const isCompanyField =
+      signupAs === "company" && (companyFieldNames.has(name) || name.startsWith("company"));
 
     if (type === "checkbox") {
       setForm((p) => ({ ...p, [name]: e.target.checked }));
@@ -92,7 +94,7 @@ export default function Signup() {
 
     if (type === "file") {
       const nextFile = files && files[0] ? files[0] : null;
-      if (companyFieldNames.has(name) || name.startsWith("company")) {
+      if (isCompanyField) {
         setCompanyForm((p) => ({ ...p, [name]: nextFile }));
       } else {
         setForm((p) => ({ ...p, [name]: nextFile }));
@@ -114,7 +116,7 @@ export default function Signup() {
       return;
     }
 
-    if (companyFieldNames.has(name) || name.startsWith("company")) {
+    if (isCompanyField) {
       const normalizedValue =
         name === "gstNumber" || name === "panNumber" || name === "cinNumber"
           ? value.toUpperCase()

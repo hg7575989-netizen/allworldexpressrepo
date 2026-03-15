@@ -33,6 +33,27 @@
   color: #475569;
 }
 
+.admin-header-actions {
+  margin-top: 14px;
+}
+
+.admin-generate-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 10px;
+  background: #0f766e;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 10px 24px rgba(15, 118, 110, 0.18);
+}
+
+.admin-generate-link:hover {
+  background: #0d655f;
+}
+
 .admin-tabs {
   display: flex;
   gap: 10px;

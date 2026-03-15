@@ -6,11 +6,13 @@ import DoctForm from "./doct/Doct";
 import Manifest from "./Manifest/Manifest";
 import Data from "./Data/Data";
 import CompanyData from "./Data/Company_Data";
+import ProcessingOrders from "./orders/ProcessingOrders";
 import About from "./Abuot/About";
 import Contact from "./Contact/Contact";
 import Login from "./login-signup/Login";
 import Signup from "./login-signup/Signup";
 import AdminPanel from "./admin/AdminPanel";
+import ScannerPage from "./scanner/ScannerPage";
 
 function readAuthUser() {
   try {
@@ -43,12 +45,14 @@ function App() {
         <Route path="/doct" element={<ProtectedRoute element={<DoctForm />} />} />
         <Route path="/manifest" element={<ProtectedRoute element={<Manifest />} />} />
         <Route path="/data" element={<ProtectedRoute element={<Data />} />} />
+        <Route path="/processing-orders" element={<ProtectedRoute element={<ProcessingOrders />} />} />
         <Route path="/company-data" element={<ProtectedRoute element={<CompanyData />} />} />
         <Route path="/about" element={<ProtectedRoute element={<About />} />} />
         <Route path="/contact" element={<ProtectedRoute element={<Contact />} />} />
         <Route path="/admin" element={<AdminRoute element={<AdminPanel />} />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        <Route path="/scanner" element={<ScannerPage />} />
         <Route path="*" element={<Navigate to="/home" replace />} />
       </Routes>
     </BrowserRouter>

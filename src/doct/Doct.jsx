@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import "./Doct.css";
@@ -58,6 +58,8 @@ export default function DoctForm() {
   const [searchParams] = useSearchParams();
   const editDocId = searchParams.get("docId");
   const adminEmployeeIdFromQuery = searchParams.get("employeeId");
+  const adminCompanyIdFromQuery = searchParams.get("companyId");
+  const adminGeneratedByFromQuery = searchParams.get("generatedBy");
   const isAdminEdit = searchParams.get("admin") === "1";
   const getToday = () => new Date().toISOString().split("T")[0];
 
@@ -73,8 +75,58 @@ export default function DoctForm() {
 
   const [invoices, setInvoices] = useState([""]);
   const [prices, setPrices] = useState([""]);
+  const authUser = useMemo(() => readAuthUser(), []);
+  const isCompanyUser = authUser?.accountType === "company";
+
+  const resolveDocActor = useCallback((authUser) => {
+    if (!authUser) {
+      return { employeeId: "", companyId: "", accountType: "" };
+    }
+
+    if (authUser.accountType === "admin" && isAdminEdit) {
+      const employeeId = String(adminEmployeeIdFromQuery || "").trim();
+      if (employeeId) {
+        return { employeeId, companyId: "", accountType: "employee" };
+      }
+      const companyId = String(adminCompanyIdFromQuery || "").trim();
+      if (companyId) {
+        return { employeeId: "", companyId, accountType: "company" };
+      }
+      if (String(adminGeneratedByFromQuery || "").trim().toLowerCase() === "admin") {
+        return { employeeId: "", companyId: "", accountType: "admin" };
+      }
+      return { employeeId: "", companyId: "", accountType: "admin" };
+    }
+
+    if (authUser.accountType === "admin") {
+      return {
+        employeeId: "",
+        companyId: "",
+        accountType: "admin",
+      };
+    }
+
+    if (authUser.accountType === "company") {
+      return {
+        employeeId: "",
+        companyId: String(authUser.dbId || authUser.id || "").trim(),
+        accountType: "company",
+      };
+    }
+
+    return {
+      employeeId: String(authUser.dbId || authUser.id || "").trim(),
+      companyId: "",
+      accountType: "employee",
+    };
+  }, [adminCompanyIdFromQuery, adminEmployeeIdFromQuery, adminGeneratedByFromQuery, isAdminEdit]);
 
   const consignorOptions = useMemo(() => {
+    if (isCompanyUser) {
+      const selfCompanyName = String(authUser?.name || "").trim();
+      return selfCompanyName ? [selfCompanyName] : [];
+    }
+
     const out = [...staticConsignorOptions];
     const seen = new Set(staticConsignorOptions.map((item) => String(item).trim().toLowerCase()));
     for (const item of dynamicConsignorOptions) {
@@ -86,7 +138,7 @@ export default function DoctForm() {
       out.push(cleanItem);
     }
     return out;
-  }, [dynamicConsignorOptions]);
+  }, [isCompanyUser, authUser?.name, dynamicConsignorOptions]);
 
   const consignorContentMap = useMemo(
     () => ({ ...staticConsignorContentMap, ...dynamicConsignorContentMap }),
@@ -95,6 +147,9 @@ export default function DoctForm() {
 
   useEffect(() => {
     const loadConsignorCompanies = async () => {
+      if (authUser?.accountType === "company") {
+        return;
+      }
       try {
         const res = await fetch(apiUrl("/api/companies/consignors"));
         const data = await res.json();
@@ -127,7 +182,22 @@ export default function DoctForm() {
     };
 
     loadConsignorCompanies();
-  }, []);
+  }, [authUser?.accountType]);
+
+  useEffect(() => {
+    const selfCompanyName = String(authUser?.name || "").trim();
+    if (!isCompanyUser || !selfCompanyName) return;
+
+    setForm((prev) => {
+      if (String(prev.consignor || "").trim() === selfCompanyName) return prev;
+      return {
+        ...prev,
+        consignor: selfCompanyName,
+        airwayBill: editDocId ? prev.airwayBill : "",
+        contentDescription: consignorContentMap[selfCompanyName] || prev.contentDescription,
+      };
+    });
+  }, [isCompanyUser, authUser?.name, consignorContentMap, editDocId]);
 
   useEffect(() => {
     const loadDocForEdit = async () => {
@@ -135,17 +205,17 @@ export default function DoctForm() {
 
       const authUser = readAuthUser();
       if (!authUser?.id && !authUser?.dbId) return;
-      const canUseAdminEmployee =
-        authUser.accountType === "admin" && isAdminEdit && String(adminEmployeeIdFromQuery || "").trim();
-      const employeeIdToUse = canUseAdminEmployee
-        ? String(adminEmployeeIdFromQuery).trim()
-        : authUser.dbId || authUser.id;
+      const actor = resolveDocActor(authUser);
+      if (!actor.employeeId && !actor.companyId) return;
 
       try {
-        const employeeId = encodeURIComponent(employeeIdToUse);
-        const res = await fetch(
-          apiUrl(`/api/docs/${encodeURIComponent(editDocId)}?employeeId=${employeeId}`)
-        );
+        const docId = encodeURIComponent(editDocId);
+        const query = actor.employeeId
+          ? `employeeId=${encodeURIComponent(actor.employeeId)}`
+          : actor.companyId
+            ? `companyId=${encodeURIComponent(actor.companyId)}`
+            : "accountType=admin";
+        const res = await fetch(apiUrl(`/api/docs/${docId}?${query}`));
         const data = await res.json();
         if (!res.ok || !data?.doc) {
           if (res.status === 404) {
@@ -182,7 +252,7 @@ export default function DoctForm() {
     };
 
     loadDocForEdit();
-  }, [adminEmployeeIdFromQuery, editDocId, isAdminEdit, navigate]);
+  }, [editDocId, navigate, resolveDocActor]);
 
   const invoiceLines = useMemo(
     () => invoices.filter(Boolean).map((v, i) => `INV-${i + 1}: ${v}`),
@@ -232,23 +302,27 @@ export default function DoctForm() {
     const selectedConsignor = String(consignorName || form.consignor || "").trim();
     if (!selectedConsignor) return null;
 
-    const authUser = readAuthUser();
-    const canUseAdminEmployee =
-      authUser?.accountType === "admin" && isAdminEdit && String(adminEmployeeIdFromQuery || "").trim();
-    const employeeId = canUseAdminEmployee
-      ? String(adminEmployeeIdFromQuery).trim()
-      : authUser?.dbId || authUser?.id;
+    const actor = resolveDocActor(authUser);
     setGeneratingAwb(true);
     setAwbError("");
     try {
+      const payload = {
+        formType: "Doct",
+        consignor: selectedConsignor,
+      };
+      if (actor.employeeId) {
+        payload.employeeId = actor.employeeId;
+      }
+      if (actor.companyId) {
+        payload.companyId = actor.companyId;
+      }
+      if (actor.accountType) {
+        payload.accountType = actor.accountType;
+      }
       const res = await fetch(apiUrl("/api/docs/next-awb"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          employeeId,
-          formType: "Doct",
-          consignor: selectedConsignor,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       const awbNo = data?.awb?.awbNo ? String(data.awb.awbNo) : "";
@@ -333,16 +407,14 @@ export default function DoctForm() {
 
     if (!validateRequiredFields(awbNo)) return;
 
-    const authUser = readAuthUser();
     if (!authUser?.id && !authUser?.dbId) {
       alert("Please login first to generate and save DOCT.");
       return;
     }
-    const canUseAdminEmployee =
-      authUser.accountType === "admin" && isAdminEdit && String(adminEmployeeIdFromQuery || "").trim();
-    const editingEmployeeId = canUseAdminEmployee
-      ? String(adminEmployeeIdFromQuery).trim()
-      : authUser.dbId || authUser.id;
+    const actor = resolveDocActor(authUser);
+    const editingEmployeeId = actor.employeeId;
+    const editingCompanyId = actor.companyId;
+    const editingAccountType = actor.accountType;
 
     const templateUrl = "/sdf.jpg";
     const imgBytes = await fetch(templateUrl).then((r) => r.arrayBuffer());
@@ -471,7 +543,9 @@ export default function DoctForm() {
       if (editDocId) {
         uploadForm.append("docId", String(editDocId));
       }
-      uploadForm.append("employeeId", String(editingEmployeeId || ""));
+      if (editingEmployeeId) {
+        uploadForm.append("employeeId", String(editingEmployeeId));
+      }
       if (editDocId && existingPdfLink) {
         uploadForm.append("existingLink", existingPdfLink);
       }
@@ -491,7 +565,9 @@ export default function DoctForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           docId: editDocId ? Number(editDocId) : undefined,
-          employeeId: editingEmployeeId,
+          employeeId: editingEmployeeId || undefined,
+          companyId: editingCompanyId || undefined,
+          accountType: editingAccountType || undefined,
           awbNo: awbNo || form.airwayBill,
           formType: "Doct",
           pdfLink: uploadData.link,
@@ -598,6 +674,7 @@ export default function DoctForm() {
             onChange={onChange}
             options={consignorOptions}
             placeholder="Select consignor"
+            readOnly={isCompanyUser}
             required
           />
           <Field

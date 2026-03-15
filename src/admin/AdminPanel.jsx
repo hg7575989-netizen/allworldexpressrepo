@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { apiUrl } from "../config/api";
 import "./AdminPanel.css";
 
@@ -40,7 +41,7 @@ export default function AdminPanel() {
   const [loadingDaily, setLoadingDaily] = useState(true);
   const [dailyError, setDailyError] = useState("");
 
-  const loadOverview = async () => {
+  const loadOverview = useCallback(async () => {
     try {
       setOverviewError("");
       setLoadingOverview(true);
@@ -57,9 +58,9 @@ export default function AdminPanel() {
     } finally {
       setLoadingOverview(false);
     }
-  };
+  }, [adminHeaders]);
 
-  const loadDailyDocs = async (date) => {
+  const loadDailyDocs = useCallback(async (date) => {
     try {
       setDailyError("");
       setLoadingDaily(true);
@@ -79,12 +80,12 @@ export default function AdminPanel() {
     } finally {
       setLoadingDaily(false);
     }
-  };
+  }, [adminHeaders]);
 
   useEffect(() => {
     loadOverview();
     loadDailyDocs(selectedDate);
-  }, []);
+  }, [loadDailyDocs, loadOverview, selectedDate]);
 
   const toggleStatus = async (entityType, id, currentBlocked) => {
     try {
@@ -130,6 +131,11 @@ export default function AdminPanel() {
           <p>
             Logged in as <b>{user?.name || "Admin"}</b> ({user?.email || "-"})
           </p>
+          <div className="admin-header-actions">
+            <Link className="admin-generate-link" to="/doct?admin=1&generatedBy=admin">
+              Generate Doct As Admin
+            </Link>
+          </div>
         </div>
 
         <div className="admin-tabs">

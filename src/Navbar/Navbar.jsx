@@ -63,6 +63,7 @@ export default function Navbar() {
 
   const userInitial = String(user?.name || "U").trim().charAt(0).toUpperCase() || "U";
   const isCompany = user?.accountType === "company";
+  const isEmployee = user?.accountType === "employee";
   const isAdmin = user?.accountType === "admin";
 
   const handleLogout = () => {
@@ -135,6 +136,11 @@ export default function Navbar() {
           <Link className="nav__link" to="/home" onClick={() => setOpen(false)}>
             Home
           </Link>
+          {!user && (
+            <Link className="nav__link" to="/scanner" onClick={() => setOpen(false)}>
+              Scanner
+            </Link>
+          )}
           {user && (
             <>
               {isAdmin ? (
@@ -146,18 +152,23 @@ export default function Navbar() {
                   <Link className="nav__link" to="/doct" onClick={() => setOpen(false)}>
                     Doct
                   </Link>
+                  <Link className="nav__link" to="/processing-orders" onClick={() => setOpen(false)}>
+                    Processing Orders
+                  </Link>
                   {!isCompany && (
                     <Link className="nav__link" to="/manifest" onClick={() => setOpen(false)}>
                       Manifest
                     </Link>
                   )}
-                  <Link
-                    className="nav__link"
-                    to={isCompany ? "/company-data" : "/data"}
-                    onClick={() => setOpen(false)}
-                  >
-                    {isCompany ? "Company Data" : "Data"}
-                  </Link>
+                  {isCompany && (
+                    <Link
+                      className="nav__link"
+                      to="/company-data"
+                      onClick={() => setOpen(false)}
+                    >
+                      Company Data
+                    </Link>
+                  )}
                   <Link className="nav__link" to="/about" onClick={() => setOpen(false)}>
                     About
                   </Link>
@@ -186,6 +197,18 @@ export default function Navbar() {
                   <div className="nav__profileMenu" role="menu">
                     <div className="nav__profileName">{user?.name || "User"}</div>
                     <div className="nav__profileId">ID: {user?.id || "-"}</div>
+                    {isEmployee && (
+                      <Link
+                        className="nav__profileLink"
+                        to="/processing-orders"
+                        onClick={() => {
+                          setProfileOpen(false);
+                          setOpen(false);
+                        }}
+                      >
+                        Processing Orders
+                      </Link>
+                    )}
                     <button type="button" className="nav__logout" onClick={handleLogout}>
                       Logout
                     </button>
