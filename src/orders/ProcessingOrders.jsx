@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import QRCode from "qrcode";
 import "./ProcessingOrders.css";
 import { apiUrl } from "../config/api";
 
@@ -29,6 +30,28 @@ function readAuthUser() {
   }
 }
 
+function buildQrPayload(order) {
+  return `ALLWORLD_QR::${JSON.stringify({
+    docId: order.id,
+    awbNo: order.awb_no,
+    boxCount: order.box_count,
+  })}`;
+}
+
+function formatScanLocation(order) {
+  const lat = order?.last_scan_latitude;
+  const lng = order?.last_scan_longitude;
+  if (lat === null || lat === undefined || lng === null || lng === undefined) return "";
+  return `${lat}, ${lng}`;
+}
+
+function buildLocationLink(order) {
+  const lat = order?.last_scan_latitude;
+  const lng = order?.last_scan_longitude;
+  if (lat === null || lat === undefined || lng === null || lng === undefined) return "";
+  return `https://www.google.com/maps?q=${lat},${lng}`;
+}
+
 export default function ProcessingOrders() {
   const user = useMemo(() => readAuthUser(), []);
   const isCompanyUser = user?.accountType === "company";
@@ -37,11 +60,13 @@ export default function ProcessingOrders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [qrImage, setQrImage] = useState("");
+  const [qrOrder, setQrOrder] = useState(null);
+  const [generatingOrderId, setGeneratingOrderId] = useState(null);
 
   useEffect(() => {
     const loadOrders = async () => {
       try {
-        setLoading(true);
         setError("");
         const res = await fetch(apiUrl("/api/orders"));
         const data = await res.json();
@@ -57,7 +82,11 @@ export default function ProcessingOrders() {
       }
     };
 
+    setLoading(true);
     loadOrders();
+    const intervalId = window.setInterval(loadOrders, 10000);
+
+    return () => window.clearInterval(intervalId);
   }, []);
 
   useEffect(() => {
@@ -66,31 +95,6 @@ export default function ProcessingOrders() {
     }
   }, [activeTab, isCompanyUser]);
 
-  const grouped = useMemo(() => {
-    const manifest = orders.filter(
-      (item) =>
-        String(item?.form_type || "").toLowerCase() === "manifest" ||
-        String(item?.order_status || "").toLowerCase() === "manifest"
-    );
-    const inTransit = orders.filter(
-      (item) => String(item?.order_status || "").toLowerCase() === "in_transit"
-    );
-    const outForDelivery = orders.filter(
-      (item) => String(item?.order_status || "").toLowerCase() === "out_for_delivery"
-    );
-    const delivered = orders.filter(
-      (item) => String(item?.order_status || "").toLowerCase() === "delivered"
-    );
-
-    return {
-      all: orders,
-      manifest,
-      in_transit: inTransit,
-      out_for_delivery: outForDelivery,
-      delivered,
-    };
-  }, [orders]);
-
   const visibleTabs = useMemo(() => {
     if (isCompanyUser) {
       return TABS.filter((tab) => tab.key !== "manifest");
@@ -98,7 +102,98 @@ export default function ProcessingOrders() {
     return TABS;
   }, [isCompanyUser]);
 
+  const scopedOrders = useMemo(() => {
+    if (user?.accountType === "company") {
+      const companyName = String(user?.name || "").trim().toLowerCase();
+      return orders.filter(
+        (order) => String(order?.consignor_name || "").trim().toLowerCase() === companyName
+      );
+    }
+
+    if (user?.accountType === "employee") {
+      const employeeId = String(user?.id || "").trim().toLowerCase();
+      return orders.filter(
+        (order) => String(order?.generated_by_employee_id || "").trim().toLowerCase() === employeeId
+      );
+    }
+
+    return orders;
+  }, [orders, user]);
+
+  const grouped = useMemo(() => {
+    const manifest = scopedOrders.filter(
+      (item) =>
+        String(item?.form_type || "").toLowerCase() === "manifest" ||
+        String(item?.order_status || "").toLowerCase() === "manifest"
+    );
+    const inTransit = scopedOrders.filter(
+      (item) => String(item?.order_status || "").toLowerCase() === "in_transit"
+    );
+    const outForDelivery = scopedOrders.filter(
+      (item) => String(item?.order_status || "").toLowerCase() === "out_for_delivery"
+    );
+    const delivered = scopedOrders.filter(
+      (item) => String(item?.order_status || "").toLowerCase() === "delivered"
+    );
+
+    return {
+      all: scopedOrders,
+      manifest,
+      in_transit: inTransit,
+      out_for_delivery: outForDelivery,
+      delivered,
+    };
+  }, [scopedOrders]);
+
   const currentRows = grouped[activeTab] || [];
+
+  const closeQrModal = () => {
+    setQrImage("");
+    setQrOrder(null);
+    setGeneratingOrderId(null);
+  };
+
+  const handleGenerateQr = async (order) => {
+    try {
+      setGeneratingOrderId(order.id);
+
+      const markRes = await fetch(apiUrl("/api/orders/mark-in-transit"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          docId: order.id,
+          awbNo: order.awb_no,
+        }),
+      });
+      const markData = await markRes.json();
+      if (!markRes.ok) {
+        alert(markData?.message || "QR generate karte waqt status update nahi ho paya.");
+        setGeneratingOrderId(null);
+        return;
+      }
+
+      const payload = buildQrPayload(order);
+      const qrDataUrl = await QRCode.toDataURL(payload, {
+        margin: 2,
+        width: 320,
+      });
+
+      setOrders((prev) =>
+        prev.map((item) =>
+          item.id === order.id
+            ? { ...item, order_status: "in_transit" }
+            : item
+        )
+      );
+
+      setQrOrder({ ...order, order_status: "in_transit" });
+      setQrImage(qrDataUrl);
+      setGeneratingOrderId(null);
+    } catch {
+      setGeneratingOrderId(null);
+      alert("QR code generate nahi ho paya.");
+    }
+  };
 
   return (
     <div className="po-wrap">
@@ -146,6 +241,10 @@ export default function ProcessingOrders() {
                 )}
                 {currentRows.map((order) => {
                   const dateText = order.created_at ? new Date(order.created_at).toLocaleString() : "-";
+                  const scanLocation = formatScanLocation(order);
+                  const scanLocationLink = buildLocationLink(order);
+                  const scanTime = order.last_scan_at ? new Date(order.last_scan_at).toLocaleString() : "";
+
                   return (
                     <tr key={order.id}>
                       <td>
@@ -158,6 +257,15 @@ export default function ProcessingOrders() {
                           <span className="po-status">{statusLabel(order.order_status)}</span>
                           <span className="po-small">{dateText}</span>
                         </div>
+                        {scanLocation && (
+                          <div className="po-small po-meta">Current: {scanLocation}</div>
+                        )}
+                        {order.last_scan_ip && (
+                          <div className="po-small po-meta">IP: {order.last_scan_ip}</div>
+                        )}
+                        {scanTime && (
+                          <div className="po-small po-meta">Last Scan: {scanTime}</div>
+                        )}
                       </td>
                       <td>
                         <div>{order.origin || "-"}</div>
@@ -180,9 +288,36 @@ export default function ProcessingOrders() {
                         </div>
                       </td>
                       <td>
-                        {isEmployeeUser ? (
-                          <button type="button" className="po-qrBtn">
-                            Generate QR Code
+                        {String(order.order_status || "").toLowerCase() === "in_transit" ? (
+                          scanLocation ? (
+                            <div className="po-actionInfo">
+                              <div className="po-small">Last Location</div>
+                              <div className="po-actionText">{scanLocation}</div>
+                              <a
+                                className="po-locationLink"
+                                href={scanLocationLink}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                Open Location
+                              </a>
+                            </div>
+                          ) : order.last_scan_ip ? (
+                            <div className="po-actionInfo">
+                              <div className="po-small">Last Scan IP</div>
+                              <div className="po-actionText">{order.last_scan_ip}</div>
+                            </div>
+                          ) : (
+                            <span className="po-small">Location pending</span>
+                          )
+                        ) : isEmployeeUser ? (
+                          <button
+                            type="button"
+                            className="po-qrBtn"
+                            onClick={() => handleGenerateQr(order)}
+                            disabled={generatingOrderId === order.id}
+                          >
+                            {generatingOrderId === order.id ? "Generating..." : "Generate QR Code"}
                           </button>
                         ) : (
                           <span className="po-small">-</span>
@@ -196,6 +331,21 @@ export default function ProcessingOrders() {
           </div>
         )}
       </div>
+
+      {qrImage && qrOrder && (
+        <div className="po-modal">
+          <div className="po-modalCard">
+            <h3>QR Code Ready</h3>
+            <p className="po-small">
+              AWB: <b>{qrOrder.awb_no}</b> | Boxes: <b>{qrOrder.box_count}</b>
+            </p>
+            <img className="po-qrImage" src={qrImage} alt={`QR for ${qrOrder.awb_no}`} />
+            <button type="button" className="po-qrBtn" onClick={closeQrModal}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

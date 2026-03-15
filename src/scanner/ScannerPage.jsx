@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import "./ScannerPage.css";
+import { apiUrl } from "../config/api";
 
 const SCANNER_REGION_ID = "public-qr-scanner";
+const QR_PREFIX = "ALLWORLD_QR::";
 
 function normalizeScannerError(err) {
   const raw = String(err?.message || err || "").trim();
@@ -17,6 +19,37 @@ function normalizeScannerError(err) {
     return "Camera access ke liye secure context chahiye. localhost ya HTTPS par page kholiye.";
   }
   return raw;
+}
+
+function readQrPayload(decodedText) {
+  const raw = String(decodedText || "").trim();
+  if (!raw.startsWith(QR_PREFIX)) return null;
+
+  try {
+    const parsed = JSON.parse(raw.slice(QR_PREFIX.length));
+    return {
+      docId: Number(parsed?.docId || 0),
+      awbNo: String(parsed?.awbNo || "").trim(),
+      boxCount: String(parsed?.boxCount || "").trim(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readCurrentPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("Geolocation not supported"));
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,
+      timeout: 12000,
+      maximumAge: 0,
+    });
+  });
 }
 
 export default function ScannerPage() {
@@ -96,8 +129,60 @@ export default function ScannerPage() {
           if (!cleanValue) return;
 
           setResult(cleanValue);
-          setStatus("QR code scan ho gaya.");
           await stopScanner();
+
+          const payload = readQrPayload(cleanValue);
+          if (!payload?.docId || !payload?.awbNo) {
+            setStatus("QR code scan ho gaya, lekin yeh tracking QR format me nahi hai.");
+            return;
+          }
+
+          try {
+            setStatus("Location fetch karke order update kar rahe hain...");
+            setError("");
+            let latitude = null;
+            let longitude = null;
+
+            try {
+              const position = await readCurrentPosition();
+              latitude = position?.coords?.latitude ?? null;
+              longitude = position?.coords?.longitude ?? null;
+            } catch {
+              latitude = null;
+              longitude = null;
+            }
+
+            const res = await fetch(apiUrl("/api/orders/scan"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                docId: payload.docId,
+                awbNo: payload.awbNo,
+                latitude,
+                longitude,
+              }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+              setError(data?.message || "Scan update nahi ho paya.");
+              setStatus("QR code scan ho gaya, par backend update fail hua.");
+              return;
+            }
+
+            if (latitude !== null && longitude !== null) {
+              setStatus(
+                `Order ${payload.awbNo} in transit me update ho gaya. Location aur IP save ho gaye.`
+              );
+            } else {
+              setStatus(
+                `Order ${payload.awbNo} update ho gaya. IP save ho gaya, location permission nahi mili.`
+              );
+            }
+          } catch (err) {
+            const message = normalizeScannerError(err);
+            setError(message);
+            setStatus("QR code scan ho gaya, lekin location update nahi ho paayi.");
+          }
         },
         () => undefined
       );

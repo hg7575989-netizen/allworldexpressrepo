@@ -354,7 +354,20 @@ export default function AdminPanel() {
                           {doc.generated_by_name || "-"}
                           <div className="subtxt">{doc.generated_by_employee_id || "-"}</div>
                         </td>
-                        <td>{doc.created_at ? new Date(doc.created_at).toLocaleString() : "-"}</td>
+                        <td>
+                          {doc.created_at ? new Date(doc.created_at).toLocaleString() : "-"}
+                          {doc.last_scan_latitude !== null && doc.last_scan_latitude !== undefined && (
+                            <div className="subtxt">
+                              Location: {doc.last_scan_latitude}, {doc.last_scan_longitude}
+                            </div>
+                          )}
+                          {doc.last_scan_ip && <div className="subtxt">IP: {doc.last_scan_ip}</div>}
+                          {doc.last_scan_at && (
+                            <div className="subtxt">
+                              Scanned: {new Date(doc.last_scan_at).toLocaleString()}
+                            </div>
+                          )}
+                        </td>
                         <td>
                           {doc.pdf_link ? (
                             <a href={doc.pdf_link} target="_blank" rel="noreferrer">
