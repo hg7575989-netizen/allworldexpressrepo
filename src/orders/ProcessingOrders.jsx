@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import QRCode from "qrcode";
 import "./ProcessingOrders.css";
 import { apiUrl } from "../config/api";
@@ -30,12 +31,112 @@ function readAuthUser() {
   }
 }
 
-function buildQrPayload(order) {
+function buildQrPayload(order, boxNumber, totalBoxes) {
   return `ALLWORLD_QR::${JSON.stringify({
     docId: order.id,
     awbNo: order.awb_no,
     boxCount: order.box_count,
+    boxNumber,
+    totalBoxes,
   })}`;
+}
+
+function getTotalBoxes(order) {
+  const raw = String(order?.box_count ?? "").trim();
+  const match = raw.match(/\d+/);
+  const parsed = match ? Number(match[0]) : 0;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function dataUrlToUint8Array(dataUrl) {
+  const base64 = String(dataUrl || "").split(",")[1] || "";
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+async function downloadQrPdf(order) {
+  const totalBoxes = getTotalBoxes(order);
+  const pdfDoc = await PDFDocument.create();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  const pageWidth = 595.28;
+  const pageHeight = 841.89;
+  const margin = 30;
+  const columns = 3;
+  const rows = 3;
+  const gap = 12;
+  const cellWidth = (pageWidth - margin * 2 - gap * (columns - 1)) / columns;
+  const cellHeight = (pageHeight - margin * 2 - gap * (rows - 1)) / rows;
+  const qrSize = Math.min(cellWidth - 24, cellHeight - 58);
+
+  let page = null;
+
+  for (let index = 0; index < totalBoxes; index += 1) {
+    if (index % 9 === 0) {
+      page = pdfDoc.addPage([pageWidth, pageHeight]);
+    }
+
+    const cellIndex = index % 9;
+    const rowIndex = Math.floor(cellIndex / columns);
+    const columnIndex = cellIndex % columns;
+    const x = margin + columnIndex * (cellWidth + gap);
+    const y = pageHeight - margin - (rowIndex + 1) * cellHeight - rowIndex * gap;
+
+    const payload = buildQrPayload(order, index + 1, totalBoxes);
+    const qrDataUrl = await QRCode.toDataURL(payload, {
+      margin: 1,
+      width: 512,
+    });
+    const qrImage = await pdfDoc.embedPng(dataUrlToUint8Array(qrDataUrl));
+    const qrX = x + (cellWidth - qrSize) / 2;
+    const qrY = y + 34;
+
+    page.drawRectangle({
+      x,
+      y,
+      width: cellWidth,
+      height: cellHeight,
+      borderWidth: 1,
+      borderColor: rgb(0.84, 0.88, 0.95),
+    });
+    page.drawImage(qrImage, {
+      x: qrX,
+      y: qrY,
+      width: qrSize,
+      height: qrSize,
+    });
+    page.drawText(String(order.awb_no || "AWB"), {
+      x: x + 12,
+      y: y + cellHeight - 22,
+      size: 11,
+      font: boldFont,
+      color: rgb(0.1, 0.16, 0.32),
+    });
+    page.drawText(`Box ${index + 1} of ${totalBoxes}`, {
+      x: x + 12,
+      y: y + 16,
+      size: 10,
+      font,
+      color: rgb(0.22, 0.28, 0.43),
+    });
+  }
+
+  const pdfBytes = await pdfDoc.save();
+  const blob = new Blob([pdfBytes], { type: "application/pdf" });
+  const fileName = `${String(order.awb_no || "qr-codes").trim() || "qr-codes"}.pdf`;
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = downloadUrl;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(downloadUrl);
 }
 
 function formatScanLocation(order) {
@@ -60,8 +161,6 @@ export default function ProcessingOrders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [qrImage, setQrImage] = useState("");
-  const [qrOrder, setQrOrder] = useState(null);
   const [generatingOrderId, setGeneratingOrderId] = useState(null);
 
   useEffect(() => {
@@ -147,12 +246,6 @@ export default function ProcessingOrders() {
 
   const currentRows = grouped[activeTab] || [];
 
-  const closeQrModal = () => {
-    setQrImage("");
-    setQrOrder(null);
-    setGeneratingOrderId(null);
-  };
-
   const handleGenerateQr = async (order) => {
     try {
       setGeneratingOrderId(order.id);
@@ -172,11 +265,7 @@ export default function ProcessingOrders() {
         return;
       }
 
-      const payload = buildQrPayload(order);
-      const qrDataUrl = await QRCode.toDataURL(payload, {
-        margin: 2,
-        width: 320,
-      });
+      await downloadQrPdf(order);
 
       setOrders((prev) =>
         prev.map((item) =>
@@ -186,12 +275,21 @@ export default function ProcessingOrders() {
         )
       );
 
-      setQrOrder({ ...order, order_status: "in_transit" });
-      setQrImage(qrDataUrl);
       setGeneratingOrderId(null);
     } catch {
       setGeneratingOrderId(null);
-      alert("QR code generate nahi ho paya.");
+      alert("QR code PDF generate nahi ho paya.");
+    }
+  };
+
+  const handleRedownloadQr = async (order) => {
+    try {
+      setGeneratingOrderId(order.id);
+      await downloadQrPdf(order);
+    } catch {
+      alert("QR code PDF dobara download nahi ho paya.");
+    } finally {
+      setGeneratingOrderId(null);
     }
   };
 
@@ -289,27 +387,39 @@ export default function ProcessingOrders() {
                       </td>
                       <td>
                         {String(order.order_status || "").toLowerCase() === "in_transit" ? (
-                          scanLocation ? (
-                            <div className="po-actionInfo">
-                              <div className="po-small">Last Location</div>
-                              <div className="po-actionText">{scanLocation}</div>
-                              <a
-                                className="po-locationLink"
-                                href={scanLocationLink}
-                                target="_blank"
-                                rel="noreferrer"
+                          <div className="po-actionInfo">
+                            {scanLocation ? (
+                              <>
+                                <div className="po-small">Last Location</div>
+                                <div className="po-actionText">{scanLocation}</div>
+                                <a
+                                  className="po-locationLink"
+                                  href={scanLocationLink}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  Open Location
+                                </a>
+                              </>
+                            ) : order.last_scan_ip ? (
+                              <>
+                                <div className="po-small">Last Scan IP</div>
+                                <div className="po-actionText">{order.last_scan_ip}</div>
+                              </>
+                            ) : (
+                              <span className="po-small">Location pending</span>
+                            )}
+                            {isEmployeeUser && (
+                              <button
+                                type="button"
+                                className="po-qrBtn"
+                                onClick={() => handleRedownloadQr(order)}
+                                disabled={generatingOrderId === order.id}
                               >
-                                Open Location
-                              </a>
-                            </div>
-                          ) : order.last_scan_ip ? (
-                            <div className="po-actionInfo">
-                              <div className="po-small">Last Scan IP</div>
-                              <div className="po-actionText">{order.last_scan_ip}</div>
-                            </div>
-                          ) : (
-                            <span className="po-small">Location pending</span>
-                          )
+                                {generatingOrderId === order.id ? "Preparing..." : "Re-download QR PDF"}
+                              </button>
+                            )}
+                          </div>
                         ) : isEmployeeUser ? (
                           <button
                             type="button"
@@ -332,20 +442,6 @@ export default function ProcessingOrders() {
         )}
       </div>
 
-      {qrImage && qrOrder && (
-        <div className="po-modal">
-          <div className="po-modalCard">
-            <h3>QR Code Ready</h3>
-            <p className="po-small">
-              AWB: <b>{qrOrder.awb_no}</b> | Boxes: <b>{qrOrder.box_count}</b>
-            </p>
-            <img className="po-qrImage" src={qrImage} alt={`QR for ${qrOrder.awb_no}`} />
-            <button type="button" className="po-qrBtn" onClick={closeQrModal}>
-              Close
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
