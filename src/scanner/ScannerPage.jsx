@@ -5,6 +5,7 @@ import { apiUrl } from "../config/api";
 
 const SCANNER_REGION_ID = "public-qr-scanner";
 const QR_PREFIX = "ALLWORLD_QR::";
+const MANIFEST_QR_PREFIX = "ALLWORLD_MANIFEST_QR::";
 
 function normalizeScannerError(err) {
   const raw = String(err?.message || err || "").trim();
@@ -23,18 +24,29 @@ function normalizeScannerError(err) {
 
 function readQrPayload(decodedText) {
   const raw = String(decodedText || "").trim();
-  if (!raw.startsWith(QR_PREFIX)) return null;
-
   try {
-    const parsed = JSON.parse(raw.slice(QR_PREFIX.length));
-    return {
-      docId: Number(parsed?.docId || 0),
-      awbNo: String(parsed?.awbNo || "").trim(),
-      boxCount: String(parsed?.boxCount || "").trim(),
-    };
+    if (raw.startsWith(MANIFEST_QR_PREFIX)) {
+      const parsed = JSON.parse(raw.slice(MANIFEST_QR_PREFIX.length));
+      return {
+        type: "manifest",
+        manifestNumber: String(parsed?.manifestNumber || "").trim(),
+      };
+    }
+
+    if (raw.startsWith(QR_PREFIX)) {
+      const parsed = JSON.parse(raw.slice(QR_PREFIX.length));
+      return {
+        type: "order",
+        docId: Number(parsed?.docId || 0),
+        awbNo: String(parsed?.awbNo || "").trim(),
+        boxCount: String(parsed?.boxCount || "").trim(),
+      };
+    }
   } catch {
     return null;
   }
+
+  return null;
 }
 
 function readCurrentPosition() {
@@ -132,7 +144,7 @@ export default function ScannerPage() {
           await stopScanner();
 
           const payload = readQrPayload(cleanValue);
-          if (!payload?.docId || !payload?.awbNo) {
+          if (!payload) {
             setStatus("QR code scan ho gaya, lekin yeh tracking QR format me nahi hai.");
             return;
           }
@@ -156,8 +168,9 @@ export default function ScannerPage() {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                docId: payload.docId,
-                awbNo: payload.awbNo,
+                docId: payload.type === "order" ? payload.docId : undefined,
+                awbNo: payload.type === "order" ? payload.awbNo : undefined,
+                manifestNumber: payload.type === "manifest" ? payload.manifestNumber : undefined,
                 latitude,
                 longitude,
               }),
@@ -172,11 +185,15 @@ export default function ScannerPage() {
 
             if (latitude !== null && longitude !== null) {
               setStatus(
-                `Order ${payload.awbNo} in transit me update ho gaya. Location aur IP save ho gaye.`
+                payload.type === "manifest"
+                  ? `Manifest ${payload.manifestNumber} ke saare orders update ho gaye. Location aur IP save ho gaye.`
+                  : `Order ${payload.awbNo} in transit me update ho gaya. Location aur IP save ho gaye.`
               );
             } else {
               setStatus(
-                `Order ${payload.awbNo} update ho gaya. IP save ho gaya, location permission nahi mili.`
+                payload.type === "manifest"
+                  ? `Manifest ${payload.manifestNumber} update ho gaya. IP save ho gaya, location permission nahi mili.`
+                  : `Order ${payload.awbNo} update ho gaya. IP save ho gaya, location permission nahi mili.`
               );
             }
           } catch (err) {
